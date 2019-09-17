@@ -104,18 +104,17 @@ def change_review_status(db, reviewId, closed):
 def list_comments(db, reviewId):
     processedResults = []
     cur = db.cursor()
-    cur.execute("SELECT comments.id, comments.hash, comments.author, comments.pageId, comments.type, comments.msg, comments.status, comments.rects, comments.replyToId, comments.timestamp, comments.deleted, myread.myread FROM comments LEFT JOIN myread ON comments.hash=myread.commenthash AND comments.reviewid=myread.reviewid AND myread.reader=%s WHERE comments.reviewid=%s ORDER BY comments.id ASC;", (login_email, reviewId))
+    cur.execute("SELECT comments.id, comments.hash, comments.author, comments.pageId, comments.type, comments.msg, comments.status, comments.rects, comments.replyToId, comments.timestamp, myread.myread FROM comments LEFT JOIN myread ON comments.hash=myread.commenthash AND comments.reviewid=myread.reviewid AND myread.reader=%s WHERE comments.deleted = 0 AND comments.reviewid=%s ORDER BY comments.id ASC;", (login_email, reviewId))
     result = cur.fetchall()
     cur.close()
     if result:
-        for (id, hash, author, pageId, type, msg, status, rects, replyToId, timestamp, deleted, read) in result:
+        for (id, hash, author, pageId, type, msg, status, rects, replyToId, timestamp, read) in result:
             tmp = {
                 "id":       hash,
                 "author":   author,
                 "msg":      msg,
                 "status":   status,
                 "secs_UTC": timestamp,
-                "deleted":  deleted,
                 "owner":    (author == login_name)
             }
             if (pageId is not None):    tmp["pageId"] = pageId
