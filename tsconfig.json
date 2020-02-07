@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "outDir": "./js",
+        "strict": true,
+        "module": "commonjs",
+        "target": "es6",
+        "sourceMap": true
+    },
+    "include": [
+        "ui_src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

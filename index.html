@@ -1,3 +1,25 @@
-<!-- TODO remove this hack as soon as cypress is fixed -->
-<!-- see: https://github.com/cypress-io/cypress/issues/5717 -->
-<script>window.location.href="index.cgi";</script>
+<!DOCTYPE html>
+<HTML>
+<HEAD>
+    <TITLE>PDF Review</TITLE>
+    <LINK type="text/css" rel="stylesheet" href="css/common.css"   media="screen,projection" />
+    <LINK type="text/css" rel="stylesheet" href="css/welcome.css"  media="screen,projection" />
+    <LINK rel="SHORTCUT ICON" HREF="favicon.png" />
+    <NOSCRIPT>
+        <STYLE>html{display:none;}</STYLE>
+        <META http-equiv="refresh" content="0.0;url=unsupported.html">
+    </NOSCRIPT>
+    <SCRIPT>
+        if(!('Promise' in window) || (!window.indexedDB)) {
+            window.location = 'unsupported.html';
+        }
+    </SCRIPT>
+    <SCRIPT language="javascript" src="js/review-list.js"></SCRIPT>
+    <META charset="UTF-8" />
+</HEAD>
+<BODY>
+
+
+
+</BODY>
+</HTML>

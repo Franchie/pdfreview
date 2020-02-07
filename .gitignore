@@ -21,3 +21,7 @@ cypress/screenshots
 coverage
 .nyc_output
 instrumentedjs/
+
+# Node
+node_modules/*
+js/*.js
