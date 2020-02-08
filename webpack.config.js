@@ -8,7 +8,7 @@ module.exports = {
         watchContentBase: true,
     },
     entry: {
-        "review-list": './ui_src/review-list.ts'
+        "review-list": './ui_src/review-list.tsx'
     },
     output: {
         filename: '[name].js',

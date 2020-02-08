@@ -3,11 +3,19 @@
         "outDir": "./js",
         "strict": true,
         "module": "commonjs",
+        "module": "es6",
         "target": "es6",
-        "sourceMap": true
+        "jsx": "react",
+        "allowSyntheticDefaultImports": true,
+        "sourceMap": true,
+        "lib": [
+            "dom",
+            "es6"
+        ]
     },
     "include": [
-        "ui_src/**/*.ts"
+        "ui_src/**/*.ts",
+        "ui_src/**/*.tsx"
     ],
     "exclude": [
         "node_modules"
