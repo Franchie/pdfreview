@@ -1,7 +1,10 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom";
 
-console.log("Started v2")
+import 'typeface-roboto';
+
+
+
 
 class MyComponent extends React.Component {
     render() {

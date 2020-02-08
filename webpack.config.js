@@ -1,19 +1,19 @@
 const path = require('path');
 
-module.exports = {
-    devtool: 'eval-source-map',
+var config = {
     devServer: {
         contentBase: path.resolve(__dirname),
         historyApiFallback: true,
         watchContentBase: true,
     },
     entry: {
-        "review-list": './ui_src/review-list.tsx'
+        "index": './ui_src/index.tsx'
     },
     output: {
         filename: '[name].js',
-        path: path.resolve(__dirname, 'js'),
-        publicPath: '/js/',
+        sourceMapFilename: "[name].js.map",
+        path: path.resolve(__dirname, 'build'),
+        publicPath: '/build/',
     },
     resolve: {
         extensions: ['.ts', '.tsx', '.js'],
@@ -26,11 +26,40 @@ module.exports = {
                 exclude: /node_modules/,
             },
             {
+                test: /\.css$/i,
+                use: 'css-loader'
+            },
+            {
+                test: /\.(woff|woff2|eot|ttf|svg)$/,
+                loader: 'file-loader',
+                options: {
+                    name: '[name].[ext]'
+                }
+            },
+            {
                 enforce: "pre",
                 test: /\.js$/,
                 loader: "source-map-loader"
             }
         ],
     }
+};
+
+
+module.exports = (env, argv) => {
+
+    if (argv.mode === 'development') {
+        config.devtool = 'eval-source-map';
+    }
+
+    else if (argv.mode === 'production') {
+        config.devtool = 'source-map';
+    }
+
+    else {
+        console.error("Could not find a suitable deployment mode");
+    }
+
+    return config;
 };
 

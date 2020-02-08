@@ -24,4 +24,4 @@ instrumentedjs/
 
 # Node
 node_modules/*
-js/*.js
+build/*
