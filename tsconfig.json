@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
-        "outDir": "./js",
+        "moduleResolution": "node",
+        "outDir": "./build",
         "strict": true,
         "module": "commonjs",
         "module": "es6",
