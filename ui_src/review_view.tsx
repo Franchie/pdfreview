@@ -5,10 +5,11 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom";
 
-import { AppBar, Toolbar, Container, Typography } from "@material-ui/core";
+import { AppBar,Toolbar, Container, Typography } from "@material-ui/core";
 
 import 'typeface-roboto';
 import { FilteredReviewCollection, ReviewDetails } from "./components/filtered_review_collection";
+import { CreateReview } from "./components/create_review";
 import { OnlineStatus, OnlineStates } from "./components/online_status";
 
 
@@ -73,6 +74,7 @@ export class ReviewView extends React.Component<ReviewViewProps, ReviewViewState
                     Collection={ this.state.reviews}
                     Filter={ (a) => (Math.random() > 0.5) /* Example filter */} />
             </Container>
+            <CreateReview />
         </>);
     }
 }
