@@ -2,11 +2,16 @@ import React, { Component } from "react";
 import ReactDOM from "react-dom";
 import { BrowserRouter as Router, Route, useLocation, RouteComponentProps } from "react-router-dom";
 
-import { AppBar, Container, CssBaseline, Toolbar, IconButton, Typography, Button } from "@material-ui/core";
-import { Menu } from "@material-ui/icons";
+import { CssBaseline, Typography } from "@material-ui/core";
 
 import 'typeface-roboto';
 import * as QueryParams from "./query_params";
+import { ReviewView } from "./review_view";
+import { OnlineStatus, OnlineStates, OnlineStatusState } from "./components/online_status";
+
+
+
+type GlobalState = OnlineStatusState /* & ... */;
 
 
 // Main app interface. This is essentially a Router that selects between
@@ -22,7 +27,14 @@ function App() {
 };
 
 
-class AppViewSelector extends React.Component<RouteComponentProps> {
+class AppViewSelector extends React.Component<RouteComponentProps, GlobalState> {
+
+    constructor(props: RouteComponentProps) {
+        super(props);
+        this.state = {
+            onlineState: OnlineStates.OfflineUnavailable
+        };
+    }
 
     // Determine whether there are any query parameters (eg: open review in editor)
     getURLParam(name: string): string | null {
@@ -33,38 +45,16 @@ class AppViewSelector extends React.Component<RouteComponentProps> {
     render() {
         let reviewID = this.getURLParam(QueryParams.review);
 
-        // Top bar indicating possible actions
-        const appbar = (
-            <AppBar position="static">
-                <Toolbar>
-                    { reviewID ? (
-                        <IconButton edge="start" color="inherit" aria-label="menu">
-                            <Menu />
-                        </IconButton>
-                    ) : "" }
-                    <Typography variant="h6" >
-                        PDFReview
-                    </Typography>
-                    <Button color="inherit">Login</Button>
-                </Toolbar>
-            </AppBar>
-        );
-
         // Main application context
         let view = (reviewID ? (
             <Typography>
                 The review editor is not yet implemented
             </Typography>
         ) : (
-            <Typography>
-                The review list is not yet implemented
-            </Typography>
+            <ReviewView onlineState={this.state.onlineState} />
         ));
 
-        return (<>
-            { appbar }
-            { view }
-        </>);
+        return view;
     }
 }
 

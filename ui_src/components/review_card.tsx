@@ -23,12 +23,13 @@ export interface ReviewCardProps {
 
 const useStyles = makeStyles({
     root: {
-        maxWidth: 450,
+        width: 320,
         margin: 5,
         display: 'inline-block',
         '&:hover $actions': {
             visibility: 'visible'
-        }
+        },
+        backgroundColor: '#f5ffff'
     },
     container: {
         display: 'flex',
