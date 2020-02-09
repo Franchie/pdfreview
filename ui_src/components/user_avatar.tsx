@@ -41,7 +41,7 @@ export class UserAvatar extends React.Component<UserAvatarProps, UserAvatarProps
     }
 
     render() {
-        let colorPair = colorFromText(this.props.name)
+        let colorPair = colorFromText(this.props.name, true);
         let size = this.props.size || UserAvatarSize.Medium;
 
         let style: React.CSSProperties = {

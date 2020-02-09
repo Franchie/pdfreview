@@ -4,7 +4,7 @@
  * always return the same colour.
  */
 
-export function colorFromText(text: string): Record<string, string>
+export function colorFromText(text: string, pastel?: boolean): Record<string, string>
 {
     // Extract each character into an array and convert to a numeric character code
     let charCodes = text.split('').map((c) => (c.charCodeAt(0)))
@@ -19,26 +19,42 @@ export function colorFromText(text: string): Record<string, string>
         (hash >> i) & 0xFF)
     );
 
-    // Format colour
-    let color = rgb.map((segment) => (
-        ("00" + segment.toString(16)).substr(-2)
-    ));
+    // If we decide to use 'normal' colours, convert random number to RGB hex string
+    if(!pastel) {
+        // Format colour
+        let color = rgb.map((segment) => (
+            ("00" + segment.toString(16)).substr(-2)
+        ));
 
-    // Format the inverse colour
-    let inverse = rgb.map((segment) => (
-        ("00" + (255 - segment).toString(16)).substr(-2)
-    ));
+        // Format the inverse colour
+        let inverse = rgb.map((segment) => (
+            ("00" + (255 - segment).toString(16)).substr(-2)
+        ));
 
-    // Calculate a black-white text colour
-    let averageColor = rgb.reduce((a, b) => (a + b), 0) / rgb.length;
-    let bw = (averageColor > 0x90) ? "black" :
-             (averageColor < 0x70) ? "white" :
-             '#' + inverse.join('');
+        // Calculate a black-white text colour
+        let averageColor = rgb.reduce((a, b) => (a + b), 0) / rgb.length;
+        let bw = (averageColor > 0x90) ? "black" :
+                 (averageColor < 0x70) ? "white" :
+                 '#' + inverse.join('');
 
-    // Return combined HEX string
-    return {
-        color: '#' + color.join(''),
-        inverse: '#' + inverse.join(''),
-        text: bw
+        // Return combined HEX string
+        return {
+            color: '#' + color.join(''),
+            inverse: '#' + inverse.join(''),
+            text: bw
+        }
+    }
+
+    // If we asked for pastel colours, use the HSL variant.
+    else {
+        let color = 'hsl(' +
+            ((rgb[0] * 360) / 256) + ',' +
+            (25 + ((rgb[0] * 70) / 256)) + '%,' +
+            (85 + ((rgb[0] * 10) / 256)) + '%)';
+        return {
+            color: color,
+            inverse: 'black',
+            text: 'black'
+        }
     }
 }
