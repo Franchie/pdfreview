@@ -5,7 +5,8 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom";
 
-import { AppBar,Toolbar, Container, Typography } from "@material-ui/core";
+import { AppBar, BottomNavigation, BottomNavigationAction, Toolbar, Container, Typography, Link } from "@material-ui/core";
+import { LiveHelp, MenuBook, GitHub } from "@material-ui/icons";
 
 import 'typeface-roboto';
 import { FilteredReviewCollection, ReviewDetails } from "./components/filtered_review_collection";
@@ -42,10 +43,19 @@ export class ReviewView extends React.Component<ReviewViewProps, ReviewViewState
     }
 
 
+    bottomNavigator(event: React.MouseEvent, index: number) {
+        switch(index) {
+            case 0: return window.open("faq.html");
+            case 1: return window.open("api.html");
+            case 2: return window.open("https://github.com/Franchie/pdfreview");
+        }
+        return false;
+    }
+
     render() {
         // Top bar indicating possible actions
         const appbar = (
-            <AppBar position="sticky">
+            <AppBar position="sticky" style={{backgroundColor: '#009fc1'}}>
                 <Toolbar variant="dense">
                     <Typography variant="h6" >
                         PDFReview
@@ -74,7 +84,14 @@ export class ReviewView extends React.Component<ReviewViewProps, ReviewViewState
                     Collection={ this.state.reviews}
                     Filter={ (a) => (Math.random() > 0.5) /* Example filter */} />
             </Container>
+
             <CreateReview />
+
+            <BottomNavigation showLabels style={{marginTop: 100}} onChange={this.bottomNavigator}>
+                <BottomNavigationAction label="FAQ" icon={<LiveHelp />} />
+                <BottomNavigationAction label="API documentation" icon={<MenuBook />} />
+                <BottomNavigationAction label="Github" icon={<GitHub />} />
+            </BottomNavigation>
         </>);
     }
 }
