@@ -7,6 +7,7 @@ import { CssBaseline, Typography } from "@material-ui/core";
 import 'typeface-roboto';
 import * as QueryParams from "./query_params";
 import { ReviewView } from "./review_view";
+import { EditorView } from "./editor_view";
 import { OnlineStatus, OnlineStates, OnlineStatusState } from "./components/online_status";
 
 
@@ -47,9 +48,7 @@ class AppViewSelector extends React.Component<RouteComponentProps, GlobalState> 
 
         // Main application context
         let view = (reviewID ? (
-            <Typography>
-                The review editor is not yet implemented
-            </Typography>
+            <EditorView onlineState={this.state.onlineState} />
         ) : (
             <ReviewView onlineState={this.state.onlineState} />
         ));
