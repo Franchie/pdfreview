@@ -1332,7 +1332,14 @@ async def show_review(request: Request, review_id: str):
 
 
 @app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
+async def custom_swagger_ui_html(request: Request):
+    current_user = auth.get_current_user(request)
+    if not current_user:
+        return RedirectResponse(request.url_for("_login_route"))
+
+    if not current_user.display_name:
+        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+
     return get_swagger_ui_html(
         openapi_url=str(app.openapi_url),
         title=app.title + " - Swagger UI",
