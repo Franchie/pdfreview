@@ -359,6 +359,18 @@ def list_my_reviews(conn: Connection, current_user: UserInfo):
     return reviews
 
 
+def get_user_or_login(request: Request):
+    current_user = auth.get_current_user(request)
+    if not current_user:
+        path_param = auth.handler.sign_path(request.url.path + ("?" if request.url.query else "") + request.url.query)
+        return RedirectResponse(request.url_for("_login_route").include_query_params(**{"next": path_param}))
+
+    if not current_user.display_name:
+        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+
+    return current_user
+
+
 #
 # Static resources -----------------------------------------------------------------------------------
 #
@@ -1040,12 +1052,10 @@ async def api_add_review(
 
 @app.get("/rss/{review_id}", response_class=Response, include_in_schema=False)
 async def rss(request: Request, review_id: str):
-    current_user = auth.get_current_user(request)
-    if not current_user:
-        return RedirectResponse(request.url_for("_login_route"))
-
-    if not current_user.display_name:
-        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+    user_response = get_user_or_login(request)
+    if isinstance(user_response, Response):
+        return user_response
+    current_user = user_response
 
     response = '<?xml version="1.0" encoding="UTF-8" ?>'
     response += '<rss version="2.0">'
@@ -1233,12 +1243,10 @@ async def upload(
 
 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 async def admin(request: Request):
-    current_user = auth.get_current_user(request)
-    if not current_user:
-        return RedirectResponse(request.url_for("_login_route"))
-
-    if not current_user.display_name:
-        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+    user_response = get_user_or_login(request)
+    if isinstance(user_response, Response):
+        return user_response
+    current_user = user_response
 
     if config.is_admin(current_user):
         return templates.TemplateResponse(
@@ -1256,12 +1264,9 @@ async def admin(request: Request):
 
 @app.get("/review/{review_id}", response_class=HTMLResponse, include_in_schema=False)
 async def show_review(request: Request, review_id: str):
-    current_user = auth.get_current_user(request)
-    if not current_user:
-        return RedirectResponse(request.url_for("_login_route"))
-
-    if not current_user.display_name:
-        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+    user_response = get_user_or_login(request)
+    if isinstance(user_response, Response):
+        return user_response
 
     with engine.connect() as conn:
         result = conn.execute(
@@ -1290,12 +1295,9 @@ async def show_review(request: Request, review_id: str):
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html(request: Request):
-    current_user = auth.get_current_user(request)
-    if not current_user:
-        return RedirectResponse(request.url_for("_login_route"))
-
-    if not current_user.display_name:
-        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+    user_response = get_user_or_login(request)
+    if isinstance(user_response, Response):
+        return user_response
 
     return get_swagger_ui_html(
         openapi_url=str(app.openapi_url),
@@ -1313,12 +1315,10 @@ async def swagger_ui_redirect():
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
-    current_user = auth.get_current_user(request)
-    if not current_user:
-        return RedirectResponse(request.url_for("_login_route"))
-
-    if not current_user.display_name:
-        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+    user_response = get_user_or_login(request)
+    if isinstance(user_response, Response):
+        return user_response
+    current_user = user_response
 
     count = 0
     if config.is_admin(current_user):
@@ -1344,12 +1344,9 @@ async def index(request: Request):
 #
 @app.get("/index.cgi", include_in_schema=False)
 async def index_legacy(request: Request):
-    current_user = auth.get_current_user(request)
-    if not current_user:
-        return RedirectResponse(request.url_for("_login_route"))
-
-    if not current_user.display_name:
-        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+    user_response = get_user_or_login(request)
+    if isinstance(user_response, Response):
+        return user_response
 
     form = await request.form()
     review_val = form.get("review") or request.query_params.get("review")
