@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.datastructures import URL
+from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -28,7 +29,7 @@ import config
 from auth import MSALAuth, UserInfo
 from system_checks import check_encoding, require_db_version
 
-app = FastAPI()
+app = FastAPI(docs_url=None, redoc_url=None)
 
 app.add_middleware(SessionMiddleware, secret_key=config.config["msal_secret"])
 auth = MSALAuth(
@@ -1323,6 +1324,22 @@ async def show_review(request: Request, review_id: str):
         name="notfound.html.j2",
         context={"BRANDING": config.config["branding"]},
     )
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=str(app.openapi_url),
+        title=app.title + " - Swagger UI",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="/js/ext/swagger-ui.d/swagger-ui-bundle.js",
+        swagger_css_url="/css/ext/swagger-ui.d/swagger-ui.css",
+    )
+
+
+@app.get(str(app.swagger_ui_oauth2_redirect_url), include_in_schema=False)
+async def swagger_ui_redirect():
+    return get_swagger_ui_oauth2_redirect_html()
 
 
 @app.get("/", response_class=HTMLResponse)
