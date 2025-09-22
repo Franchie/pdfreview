@@ -4,11 +4,12 @@ from typing import Any
 import jwt
 import requests
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.openapi.models import OAuth2, OAuthFlowAuthorizationCode, OAuthFlows, SecuritySchemeType
 from fastapi.responses import RedirectResponse
 from fastapi.security.base import SecurityBase
 from fastapi.security.utils import get_authorization_scheme_param
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from jwt.algorithms import RSAAlgorithm
 from msal import ConfidentialClientApplication  # type:ignore
 from msal import SerializableTokenCache  # type:ignore
@@ -45,6 +46,8 @@ class SessionTokenCache:
 class MSALAuthHandler:
     _session_id_key = "session_id"
     _flow_key = "flow"
+    _next_path_key = "next_uri"
+    _LINK_MAX_AGE = 5 * 60  # 5 minutes
 
     def __init__(self, client_id: str, client_credential: str, tenant: str, scopes: list[str]):
         self._client_id = client_id
@@ -52,6 +55,7 @@ class MSALAuthHandler:
         self._tenant = tenant
         self._scopes = scopes
         self._http_cache: dict[Any, Any] = {}
+        self.serializer = URLSafeTimedSerializer(client_credential)
 
     def _fetch_jwt_keys(self):
         response = requests.get("https://login.microsoftonline.com/common/discovery/keys", timeout=10)
@@ -88,12 +92,33 @@ class MSALAuthHandler:
             instance_discovery=False,
         )
 
-    def authorize_redirect(self, request: Request, state: str | None = None):
+    def sign_path(self, path: str):
+        return self.serializer.dumps(path)
+
+    def unsign_path(self, token: str):
+        try:
+            return str(self.serializer.loads(token, max_age=self._LINK_MAX_AGE))
+        except (SignatureExpired, BadSignature):
+            return None
+
+    def is_safe_path(self, uri: str | None):
+        if not uri:
+            return False
+        if not uri.startswith("/"):
+            return False
+        if uri.startswith("//"):
+            return False
+        if "/.." in uri or "\\" in uri:
+            return False
+        return True
+
+    def authorize_redirect(self, request: Request, next_path: str | None, state: str | None = None):
         auth_code: dict[str, str] = self._build_msal().initiate_auth_code_flow(  # type:ignore
             scopes=self._scopes, redirect_uri=str(request.url_for("_token_route")), state=state
         )
         request.session[self._session_id_key] = auth_code["state"]
         request.session[self._flow_key] = auth_code
+        request.session[self._next_path_key] = next_path
         return auth_code["auth_uri"]
 
     def authorize_access_token(self, request: Request, code: str, state: str | None = None):
@@ -114,6 +139,12 @@ class MSALAuthHandler:
                 http_exception.detail = f"{auth_token["error"]}: {auth_token["error_description"]}"
             raise http_exception
         self._save_cache(request.session, cache)
+
+        next_path = self.unsign_path(str(request.session.get(self._next_path_key)))
+        if not next_path or not self.is_safe_path(next_path):
+            next_path = "/"
+
+        return next_path
 
     def get_id_token_from_session(self, request: Request) -> str | None:
         cache = self._load_cache(request.session)
@@ -203,13 +234,15 @@ class MSALAuth:
             name="_token_route", path="/token", endpoint=self._get_token_route, include_in_schema=False, methods=["GET"]
         )
 
-    def _login_route(self, request: Request, state: str | None = None) -> Response:
-        auth_uri = self.handler.authorize_redirect(request, state)
+    def _login_route(
+        self, request: Request, next_path: str | None = Query(None, alias="next"), state: str | None = None
+    ) -> Response:
+        auth_uri = self.handler.authorize_redirect(request, next_path, state)
         return RedirectResponse(auth_uri)
 
     def _get_token_route(self, request: Request, code: str, state: str | None = None) -> Response:
-        self.handler.authorize_access_token(request, code, state)
-        return RedirectResponse(url="/", headers=dict(request.headers.items()))
+        next_path = self.handler.authorize_access_token(request, code, state)
+        return RedirectResponse(url=next_path, headers=dict(request.headers.items()))
 
     def get_current_user(self, request: Request) -> UserInfo | None:
         token = self.handler.get_id_token_from_session(request)
