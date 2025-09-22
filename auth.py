@@ -197,12 +197,11 @@ class MSALAuth:
 
         self.router = APIRouter()
         self.router.add_api_route(
-            name="_login_route",
-            path="/login",
-            endpoint=self._login_route,
-            methods=["GET"],
+            name="_login_route", path="/login", endpoint=self._login_route, include_in_schema=False, methods=["GET"]
         )
-        self.router.add_api_route(name="_token_route", path="/token", endpoint=self._get_token_route, methods=["GET"])
+        self.router.add_api_route(
+            name="_token_route", path="/token", endpoint=self._get_token_route, include_in_schema=False, methods=["GET"]
+        )
 
     def _login_route(self, request: Request, state: str | None = None) -> Response:
         auth_uri = self.handler.authorize_redirect(request, state)

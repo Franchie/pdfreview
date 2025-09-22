@@ -398,12 +398,12 @@ async def redirect_to_new_api(request: Request):
     return RedirectResponse(url=URL(url="/").include_query_params(**request.query_params), status_code=302)
 
 
-@app.get("/index.cgi")
+@app.get("/index.cgi", include_in_schema=False)
 async def index_get_legacy(request: Request):
     return await redirect_to_new_api(request)
 
 
-@app.post("/index.cgi")
+@app.post("/index.cgi", include_in_schema=False)
 async def index_post_legacy(request: Request):
     return await redirect_to_new_api(request)
 
@@ -922,6 +922,7 @@ def api_pdf_archive(
     response_model=UserInfo,
     response_model_exclude_none=True,
     response_model_by_alias=False,
+    include_in_schema=False,
 )
 async def api_report_error(
     review: Annotated[str, Form()],
@@ -948,6 +949,7 @@ async def api_report_error(
     response_model=UserInfo,
     response_model_exclude_none=True,
     response_model_by_alias=False,
+    include_in_schema=False,
 )
 async def api_list_errors(
     current_user: UserInfo = Depends(auth.scheme),
@@ -976,6 +978,7 @@ async def api_list_errors(
     response_model=UserInfo,
     response_model_exclude_none=True,
     response_model_by_alias=False,
+    include_in_schema=False,
 )
 async def api_delete_error(
     error_id: Annotated[str, Query(alias="id")],
@@ -1078,7 +1081,7 @@ async def api_add_review(
     return JSONResponse({"errorCode": 0, "errorMsg": "Success."})
 
 
-@app.get("/rss/{review_id}", response_class=Response)
+@app.get("/rss/{review_id}", response_class=Response, include_in_schema=False)
 async def rss(request: Request, review_id: str):
     current_user = auth.get_current_user(request)
     if not current_user:
@@ -1124,6 +1127,7 @@ async def rss(request: Request, review_id: str):
     response_model=UserInfo,
     response_model_exclude_none=True,
     response_model_by_alias=False,
+    include_in_schema=False,
 )
 async def manifest_service_worker(
     request: Request,
@@ -1181,6 +1185,7 @@ async def manifest_service_worker(
     response_model=UserInfo,
     response_model_exclude_none=True,
     response_model_by_alias=False,
+    include_in_schema=False,
 )
 async def upload(
     file: UploadFile,
@@ -1269,7 +1274,7 @@ async def upload(
     return JSONResponse({"errorCode": 0, "errorMsg": "Success", "reviewId": review_id})
 
 
-@app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 async def admin(request: Request):
     current_user = auth.get_current_user(request)
     if not current_user:
@@ -1292,7 +1297,7 @@ async def admin(request: Request):
     )
 
 
-@app.get("/review/{review_id}", response_class=HTMLResponse)
+@app.get("/review/{review_id}", response_class=HTMLResponse, include_in_schema=False)
 async def show_review(request: Request, review_id: str):
     current_user = auth.get_current_user(request)
     if not current_user:
@@ -1342,7 +1347,7 @@ async def swagger_ui_redirect():
     return get_swagger_ui_oauth2_redirect_html()
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
     current_user = auth.get_current_user(request)
     if not current_user:
