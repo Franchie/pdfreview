@@ -26,33 +26,40 @@ offline_handler.addEventListener('install', function(event) {
     );
 });
 
+const fetchAndCache = (request) => {
+    return fetch(request, {mode: 'cors', redirect: 'manual', cache: "no-cache"}).then((response) => {
+        // If the response code is not 200, then we need to simply return and
+        // not add this to the cache.
+        if (!response || response.status != 200) return response;
+
+        // If the request has prohibited items in it, then avoid caching
+        if(request.url.match("anticaching")) return response;
+        if(request.url.match("^/admin")) return response;
+        if(request.url.match("^/login")) return response;
+        if(request.url.match("^/token")) return response;
+        if(request.url.match("^/docs")) return response;
+        if(!request.url.startsWith("http")) return response;
+
+        return caches.open('v1').then(function(cache) {
+            cache.put(request, response.clone());
+            return response;
+        });
+    }).catch(() => {
+        return caches.match(request);
+    });
+}
 
 offline_handler.addEventListener('fetch', function(event) {
-    // Always try to load from the cache first, otherwise fetch via network
-    // Cache lookups ony work with GET
+    const url_path = new URL(event.request.url).pathname
+
     if(event.request.method == "GET") {
-        event.respondWith(caches.match(event.request).then(function(response) {
-            if(response) return response;
-            else return fetch(event.request, {mode: 'cors', redirect: 'manual', cache: "no-cache"}).then(function(response) {
-                // If the response code is not 200, then we need to simply return and
-                // not add this to the cache.
-                if(!response || response.status != 200) return response;
-
-                // If the request prohibited items in it, then avoid caching
-                if(event.request.url.match("anticaching")) return response;
-                if(event.request.url.match("/admin")) return response;
-                if(event.request.url.match("/login")) return response;
-                if(event.request.url.match("/token")) return response;
-                if(!event.request.url.startsWith("http")) return response;
-
-                // Also add to the cache if we have fetched something new :)
-                return caches.open('v1').then(function(cache) {
-                    cache.put(event.request, response.clone());
-                    return response;
-                });
-            });
-        }));
+        // The following are network first requests, otherwise it is cache first
+        if(url_path == "/" || url_path.match("^/review") || url_path.match("^/admin") || url_path.match("^/docs") || url_path.match("^/openapi.json"))
+            event.respondWith(fetchAndCache(event.request));
+        else
+            event.respondWith(caches.match(event.request).then((response) => response || fetchAndCache(event.request)));
     }
+
     // Otherwise fallback to the default action -- this can be done by simply not
     // calling respondWith.
 });

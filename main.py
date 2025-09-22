@@ -1137,10 +1137,10 @@ async def manifest_service_worker(
     files = glob.glob("*.png")
     files += glob.glob("*.html")
     files += glob.glob("cmaps/*")
-    files += glob.glob("css/*")
+    files += glob.glob("css/**/*.css", recursive=True)
     files += glob.glob("font/*")
     files += glob.glob("img/*")
-    files += glob.glob("js/**.js", recursive=True)
+    files += glob.glob("js/**/*.js", recursive=True)
     files += glob.glob("manifest.json")
 
     for file in files:
