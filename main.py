@@ -360,54 +360,8 @@ def list_my_reviews(conn: Connection, current_user: UserInfo):
 
 
 #
-# Handle API calls -----------------------------------------------------------------------------------
+# Static resources -----------------------------------------------------------------------------------
 #
-async def redirect_to_new_api(request: Request):
-    form = await request.form()
-    api_val = form.get("api") or request.query_params.get("api")
-    if api_val:
-        return RedirectResponse(
-            url=URL(f"/api/{api_val}").include_query_params(
-                **{k: v for k, v in request.query_params.items() if k != "api"}
-            ),
-            status_code=302,
-        )
-
-    review_val = form.get("review") or request.query_params.get("review")
-    if review_val:
-        return RedirectResponse(
-            url=URL(f"/review/{review_val}").include_query_params(
-                **{k: v for k, v in request.query_params.items() if k != "review"}
-            ),
-            status_code=302,
-        )
-
-    rss_val = form.get("rss") or request.query_params.get("rss")
-    if rss_val:
-        return RedirectResponse(
-            url=URL(f"/rss/{rss_val}").include_query_params(
-                **{k: v for k, v in request.query_params.items() if k != "rss"}
-            ),
-            status_code=302,
-        )
-
-    manifest_val = form.get("manifest") or request.query_params.get("manifest")
-    if manifest_val:
-        raise HTTPException(status_code=404)
-
-    return RedirectResponse(url=URL(url="/").include_query_params(**request.query_params), status_code=302)
-
-
-@app.get("/index.cgi", include_in_schema=False)
-async def index_get_legacy(request: Request):
-    return await redirect_to_new_api(request)
-
-
-@app.post("/index.cgi", include_in_schema=False)
-async def index_post_legacy(request: Request):
-    return await redirect_to_new_api(request)
-
-
 @app.get("/favicon.png", include_in_schema=False)
 async def favicon():
     return FileResponse("favicon.png")
@@ -438,6 +392,9 @@ async def manifest_json():
     return FileResponse("manifest.json")
 
 
+#
+# Handle API calls -----------------------------------------------------------------------------------
+#
 @app.post(
     "/api/add-comment",
     response_model=UserInfo,
@@ -1380,3 +1337,31 @@ async def index(request: Request):
             "ADMIN_ERRORS": ("(" + str(count) + ")") if count > 0 else "",
         },
     )
+
+
+#
+# Legacy urls ----------------------------------------------------------------------------------------
+#
+@app.get("/index.cgi", include_in_schema=False)
+async def index_legacy(request: Request):
+    current_user = auth.get_current_user(request)
+    if not current_user:
+        return RedirectResponse(request.url_for("_login_route"))
+
+    if not current_user.display_name:
+        return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+
+    form = await request.form()
+    review_val = form.get("review") or request.query_params.get("review")
+    if review_val:
+        return templates.TemplateResponse(
+            request=request,
+            name="legacy.html.j2",
+            context={
+                "BRANDING": config.config["branding"],
+                "SCRIPT_URL": config.config["url"],
+                "REVIEW_ID": review_val,
+            },
+        )
+
+    raise HTTPException(status_code=404)

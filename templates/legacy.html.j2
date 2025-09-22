@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<HTML>
+<HEAD>
+    <TITLE>{{ BRANDING }} PDF Review</TITLE>
+    <LINK type="text/css" rel="stylesheet" href="/css/common.css"   media="screen,projection" />
+    <LINK type="text/css" rel="stylesheet" href="/css/welcome.css"  media="screen,projection" />
+    <LINK rel="SHORTCUT ICON" HREF="/favicon.png" />
+    <NOSCRIPT>
+        <STYLE>html{display:none;}</STYLE>
+        <META http-equiv="refresh" content="0.0;url=unsupported.html">
+    </NOSCRIPT>
+    <SCRIPT>
+        if(!('Promise' in window) || (!window.indexedDB)) {
+            window.location = 'unsupported.html';
+        }
+
+        window.onload = function() {
+            var hash = window.location.hash;
+            var link = document.getElementById("redirectLink");
+            if (hash) {
+                link.href = link.href + hash;
+            }
+            link.textContent = link.href;
+        };
+    </SCRIPT>
+
+    <script src="/js/ext/jquery.d/jquery.min.js"></script>
+    <script src="/js/ext/dexie.d/dexie.min.js">Dexie.debug = true;</script>
+    <SCRIPT language="javascript" src="/js/common.js"></SCRIPT>
+    <SCRIPT language="javascript" src="/js/server.js"></SCRIPT>
+    <SCRIPT language="javascript" src="/js/welcome.js"></SCRIPT>
+    <SCRIPT language="javascript">scriptURL = '{{ SCRIPT_URL }}';</SCRIPT>
+    <META charset="UTF-8" />
+</HEAD>
+<BODY>
+
+<DIV id="banner">
+    <SPAN id="main-logo" class="logoblue-text">{{ BRANDING }}</SPAN> PDF Review
+</DIV>
+
+<NOSCRIPT>
+    <H1>Please enable Javascript</H1>
+    This tool relies heavily on javascript to operate. Please enable it at your earliest convenience.
+</NOSCRIPT>
+
+<div id="content" class="columns">
+    <p style="text-align: center">This URL has moved to <a id="redirectLink" href="{{ SCRIPT_URL }}/review/{{ REVIEW_ID }}" /></p>
+</div>
+
+<CENTER style="padding-top: 50px;">
+    <A HREF="faq.html" target="_blank">FAQ</A>
+    &nbsp; &nbsp; &nbsp;
+    <A HREF="/docs" target="_blank">API documentation</A>
+    &nbsp; &nbsp; &nbsp;
+    <A HREF="https://github.com/Franchie/pdfreview" target="_blank">GitHub</A>
+</CENTER>
+
+
+</BODY>
+</HTML>
