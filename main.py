@@ -17,7 +17,6 @@ from typing import Annotated, Any, cast
 from urllib.parse import quote_plus
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response, UploadFile
-from fastapi.datastructures import URL
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -66,18 +65,11 @@ engine = create_engine(db_url, echo=False)
 check_encoding()
 
 with engine.connect() as _conn:
-    require_db_version(_conn, "c472597eb7ac")
+    require_db_version(_conn, "3591e07be8d9")
 
 #
 # Support functions ----------------------------------------------------------------------------------
 #
-
-
-def user_id(current_user: UserInfo):
-    if isinstance(current_user.email, str):
-        return current_user.email.lower()
-
-    raise ValueError("Invalid email returned for user")
 
 
 def gen_random_string(size: int = 128):
@@ -136,7 +128,7 @@ def change_review_status(conn: Connection, current_user: UserInfo, review_id: st
         sql.text("SELECT id, owner FROM reviews WHERE reviewid=:review_id"), {"review_id": review_id}
     ).fetchone()
     if result:
-        if not result.owner == user_id(current_user):
+        if not result.owner == current_user.user_id:
             return JSONResponse(
                 {
                     "errorCode": 1,
@@ -159,20 +151,20 @@ def list_comments(conn: Connection, current_user: UserInfo, review_id: str):
     processed_results: list[dict[str, Any]] = []
     results = conn.execute(
         sql.text(
-            "SELECT comments.id, comments.hash, comments.author, comments.pageId, comments.type, comments.msg, comments.status, comments.rects, comments.replyToId, comments.timestamp, comments.deleted, myread.myread FROM comments LEFT JOIN myread ON comments.hash=myread.commenthash AND comments.reviewid=myread.reviewid AND myread.reader=:email WHERE comments.reviewid=:review_id ORDER BY comments.id ASC"
+            "SELECT comments.id, comments.hash, comments.author, user_info.name, comments.pageId, comments.type, comments.msg, comments.status, comments.rects, comments.replyToId, comments.timestamp, comments.deleted, myread.myread FROM comments LEFT JOIN myread ON comments.hash=myread.commenthash AND comments.reviewid=myread.reviewid AND myread.reader=:uid LEFT JOIN user_info ON comments.author=user_info.uid WHERE comments.reviewid=:review_id ORDER BY comments.id ASC"
         ),
-        {"email": user_id(current_user), "review_id": review_id},
+        {"uid": current_user.user_id, "review_id": review_id},
     ).fetchall()
     for row in results:
         tmp: dict[str, Any] = {
             "id": row.hash,
-            "author": row.author,
+            "author": row.name,
             "msg": row.msg,
             "status": row.status,
             "secs_UTC": row.timestamp,
             "deleted": row.deleted,
             "rects": [],
-            "owner": (row.author == current_user.display_name),
+            "owner": (row.author == current_user.user_id),
         }
         if row.pageId is not None:
             tmp["pageId"] = row.pageId
@@ -182,7 +174,7 @@ def list_comments(conn: Connection, current_user: UserInfo, review_id: str):
             tmp["replyToId"] = row.replyToId
         if row.rects is not None:
             tmp["rects"] = json.loads(row.rects)
-        if not (row.myread or row.author == current_user.display_name):
+        if not (row.myread or row.author == current_user.user_id):
             tmp["unread"] = True
         processed_results.append(tmp)
     return processed_results
@@ -337,8 +329,8 @@ def create_ps_from_comments(comments: list[dict[str, Any]], page_offset: int, hi
 def list_my_reviews(conn: Connection, current_user: UserInfo):
     reviews: list[dict[str, Any]] = []
     result = conn.execute(
-        sql.text("SELECT reviewid FROM myreviews WHERE reader=:email GROUP BY reviewid ORDER BY reviewid DESC"),
-        {"email": user_id(current_user)},
+        sql.text("SELECT reviewid FROM myreviews WHERE reader=:uid GROUP BY reviewid ORDER BY reviewid DESC"),
+        {"uid": current_user.user_id},
     ).fetchall()
     for row in result:
         reviewdetails = conn.execute(
@@ -349,7 +341,7 @@ def list_my_reviews(conn: Connection, current_user: UserInfo):
             reviews.append(
                 {
                     "id": reviewdetails.reviewid,
-                    "owner": reviewdetails.owner == user_id(current_user),
+                    "owner": reviewdetails.owner == current_user.user_id,
                     "title": reviewdetails.title,
                     "closed": reviewdetails.closed,
                     "pdf": reviewdetails.pdffile,
@@ -365,8 +357,22 @@ def get_user_or_login(request: Request):
         path_param = auth.handler.sign_path(request.url.path + ("?" if request.url.query else "") + request.url.query)
         return RedirectResponse(request.url_for("_login_route").include_query_params(**{"next": path_param}))
 
-    if not current_user.display_name:
+    if not current_user.user_id or not current_user.display_name or not current_user.email:
         return JSONResponse({"errorCode": 1, "errorMsg": "Invalid user"})
+
+    with engine.connect() as conn:
+        conn.execute(
+            sql.text(
+                "INSERT INTO user_info (uid, name, email, last_active) VALUES (:uid, :name, :email, :last_active) ON DUPLICATE KEY UPDATE name=VALUES(name), email=VALUES(email), last_active=VALUES(last_active)"
+            ),
+            {
+                "uid": current_user.user_id,
+                "name": current_user.display_name,
+                "email": current_user.email.lower(),
+                "last_active": time.time(),
+            },
+        )
+        conn.commit()
 
     return current_user
 
@@ -439,7 +445,7 @@ async def api_add_comment(
                 + "</B> "
                 + ("added a comment: " if not comment_json.get("replyToId") else "replied to a comment: ")
                 + escape_html(comment_json.get("msg", "")),
-                "owner": user_id(current_user),
+                "owner": current_user.user_id,
                 "url": config.config["url"] + "?review=" + review,
                 "review_id": review,
                 "timestamp": time.time(),
@@ -458,7 +464,7 @@ async def api_add_comment(
                 ),
                 {
                     "hash": comment_json.get("id"),
-                    "author": current_user.display_name,
+                    "author": current_user.user_id,
                     "page_id": comment_json.get("pageId"),
                     "type": comment_json.get("type"),
                     "msg": comment_json.get("msg", ""),
@@ -499,7 +505,7 @@ async def api_delete_comment(
             ),
             {
                 "msg": "<B>" + str(current_user.display_name) + "</B> deleted a comment.",
-                "owner": user_id(current_user),
+                "owner": current_user.user_id,
                 "url": config.config["url"] + "?review=" + review,
                 "review_id": review,
                 "timestamp": time.time(),
@@ -509,7 +515,7 @@ async def api_delete_comment(
             sql.text(
                 "UPDATE comments SET deleted=:deleted WHERE hash=:hash AND reviewid=:review_id AND author=:author"
             ),
-            {"deleted": True, "hash": commentid, "review_id": review, "author": current_user.display_name},
+            {"deleted": True, "hash": commentid, "review_id": review, "author": current_user.user_id},
         )
         conn.commit()
 
@@ -569,7 +575,7 @@ async def api_update_comment_message(
                 + str(current_user.display_name)
                 + "</B> updated a comment's message. New message: "
                 + escape_html(message),
-                "owner": user_id(current_user),
+                "owner": current_user.user_id,
                 "url": config.config["url"] + "?review=" + review,
                 "review_id": review,
                 "timestamp": time.time(),
@@ -581,7 +587,7 @@ async def api_update_comment_message(
                 "msg": string_sanitiser(message),
                 "hash": commentid,
                 "review_id": review,
-                "author": current_user.display_name,
+                "author": current_user.user_id,
             },
         )
         conn.commit()
@@ -628,14 +634,14 @@ async def api_user_mark_comment(
     with engine.connect() as conn:
         conn.execute(
             sql.text("DELETE FROM myread WHERE commenthash=:hash AND reviewid=:review_id AND reader=:reader"),
-            {"hash": commentid, "review_id": review, "reader": user_id(current_user)},
+            {"hash": commentid, "review_id": review, "reader": current_user.user_id},
         )
         if commentas == "read":
             conn.execute(
                 sql.text(
                     "INSERT INTO myread (commenthash, reviewid, reader, myread) VALUES (:hash, :review_id, :reader, :my_read)"
                 ),
-                {"hash": commentid, "review_id": review, "reader": user_id(current_user), "my_read": True},
+                {"hash": commentid, "review_id": review, "reader": current_user.user_id, "my_read": True},
             )
         conn.commit()
 
@@ -693,7 +699,7 @@ async def api_remove_review(
             sql.text("SELECT owner FROM reviews WHERE reviewid=:review_id"), {"review_id": review}
         ).fetchone()
         if result:
-            if result.owner == user_id(current_user):
+            if result.owner == current_user.user_id:
                 return JSONResponse(
                     {
                         "errorCode": 1,
@@ -704,8 +710,8 @@ async def api_remove_review(
             return JSONResponse({"errorCode": 2, "errorMsg": "The specified review could not be located."})
 
         conn.execute(
-            sql.text("DELETE FROM myreviews WHERE reviewid=:review_id AND reader=:reader"),
-            {"review_id": review, "reader": user_id(current_user)},
+            sql.text("DELETE FROM myreviews WHERE reviewid=:review_id AND reader=:uid"),
+            {"review_id": review, "uid": current_user.user_id},
         )
         conn.commit()
 
@@ -729,7 +735,7 @@ async def api_delete_review(
 
         result = conn.execute(
             sql.text("SELECT pdffile FROM reviews WHERE reviewid=:review_id AND owner=:owner"),
-            {"review_id": review, "owner": user_id(current_user)},
+            {"review_id": review, "owner": current_user.user_id},
         ).fetchone()
         if result:
             pdffile = result.pdffile
@@ -904,7 +910,7 @@ async def api_report_error(
             sql.text("INSERT INTO errors (reviewid, owner, details, msg) VALUES (:review_id, :owner, :details, :msg)"),
             {
                 "review_id": review,
-                "owner": current_user.display_name,
+                "owner": current_user.user_id,
                 "details": details,
                 "msg": msg,
             },
@@ -926,14 +932,18 @@ async def api_list_errors(
     if config.is_admin(current_user):
         errors: list[dict[str, Any]] = []
         with engine.connect() as conn:
-            result = conn.execute(sql.text("SELECT id, msg, details, owner, reviewid FROM errors")).fetchall()
+            result = conn.execute(
+                sql.text(
+                    "SELECT errors.id, errors.msg, errors.details, user_info.email, errors.reviewid FROM errors LEFT JOIN user_info ON errors.owner=user_info.uid"
+                )
+            ).fetchall()
             for row in result:
                 errors.append(
                     {
                         "id": row.id,
                         "msg": row.msg,
                         "details": row.details,
-                        "owner": row.owner,
+                        "owner": row.email,
                         "reviewid": row.reviewid,
                     }
                 )
@@ -989,12 +999,16 @@ async def api_get_all_reviews(
     if config.is_admin(current_user):
         with engine.connect() as conn:
             reviews: list[dict[str, Any]] = []
-            result = conn.execute(sql.text("SELECT reviewid, owner, closed, title, pdffile FROM reviews")).fetchall()
+            result = conn.execute(
+                sql.text(
+                    "SELECT reviews.reviewid, user_info.email, reviews.closed, reviews.title, reviews.pdffile FROM reviews LEFT JOIN user_info ON reviews.owner=user_info.uid"
+                )
+            ).fetchall()
             for row in result:
                 reviews.append(
                     {
                         "id": row.reviewid,
-                        "owner": row.owner,
+                        "owner": row.email,
                         "title": row.title,
                         "closed": row.closed,
                         "pdf": row.pdffile,
@@ -1017,9 +1031,13 @@ async def api_get_all_activity(
     if config.is_admin(current_user):
         with engine.connect() as conn:
             activity: list[dict[str, Any]] = []
-            result = conn.execute(sql.text("SELECT msg, owner, reviewid, timestamp FROM activity")).fetchall()
+            result = conn.execute(
+                sql.text(
+                    "SELECT activity.msg, user_info.email, activity.reviewid, activity.timestamp FROM activity LEFT JOIN user_info ON activity.owner=user_info.uid"
+                )
+            ).fetchall()
             for row in result:
-                activity.append({"id": row.reviewid, "owner": row.owner, "timestamp": row.timestamp, "msg": row.msg})
+                activity.append({"id": row.reviewid, "owner": row.email, "timestamp": row.timestamp, "msg": row.msg})
         return JSONResponse({"errorCode": 0, "errorMsg": "Success.", "activity": activity})
 
     return JSONResponse({"errorCode": 1, "errorMsg": "User is not an administrator."})
@@ -1037,13 +1055,13 @@ async def api_add_review(
 ):
     with engine.connect() as conn:
         result = conn.execute(
-            sql.text("SELECT reviewid FROM myreviews WHERE reviewid=:review_id AND reader=:reader"),
-            {"review_id": review, "reader": user_id(current_user)},
+            sql.text("SELECT reviewid FROM myreviews WHERE reviewid=:review_id AND reader=:uid"),
+            {"review_id": review, "uid": current_user.user_id},
         ).fetchone()
         if not result:
             conn.execute(
-                sql.text("INSERT INTO myreviews (reviewid, reader) VALUES (:review_id, :reader)"),
-                {"review_id": review, "reader": user_id(current_user)},
+                sql.text("INSERT INTO myreviews (reviewid, reader) VALUES (:review_id, :uid)"),
+                {"review_id": review, "uid": current_user.user_id},
             )
             conn.commit()
 
@@ -1073,7 +1091,7 @@ async def rss(request: Request, review_id: str):
 
         result = conn.execute(
             sql.text("SELECT id, msg, url, timestamp FROM activity WHERE reviewid=:review_id AND NOT(owner=:owner)"),
-            {"review_id": review_id, "owner": user_id(current_user)},
+            {"review_id": review_id, "owner": current_user.user_id},
         ).fetchall()
         for row in result:
             response += "<item>"
@@ -1218,7 +1236,7 @@ async def upload(
             ),
             {
                 "review_id": review_id,
-                "owner": user_id(current_user),
+                "owner": current_user.user_id,
                 "closed": False,
                 "pdffile": filename,
                 "title": pdf_title,
@@ -1227,13 +1245,13 @@ async def upload(
         conn.commit()
 
         result = conn.execute(
-            sql.text("SELECT reviewid FROM myreviews WHERE reviewid=:review_id AND reader=:reader"),
-            {"review_id": review_id, "reader": user_id(current_user)},
+            sql.text("SELECT reviewid FROM myreviews WHERE reviewid=:review_id AND reader=:uid"),
+            {"review_id": review_id, "uid": current_user.user_id},
         ).fetchone()
         if not result:
             conn.execute(
-                sql.text("INSERT INTO myreviews (reviewid, reader) VALUES (:review_id, :reader)"),
-                {"review_id": review_id, "reader": user_id(current_user)},
+                sql.text("INSERT INTO myreviews (reviewid, reader) VALUES (:review_id, :uid)"),
+                {"review_id": review_id, "uid": current_user.user_id},
             )
             conn.commit()
 

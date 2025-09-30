@@ -2,6 +2,7 @@ pdfs/*
 *.pyc
 config.py
 docs/*
+/alembic/user_map.json
 
 # Python venv
 /lib
