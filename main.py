@@ -929,7 +929,7 @@ async def api_report_error(
 async def api_list_errors(
     current_user: UserInfo = Depends(auth.scheme),
 ):
-    if config.is_admin(current_user):
+    if current_user.is_admin():
         errors: list[dict[str, Any]] = []
         with engine.connect() as conn:
             result = conn.execute(
@@ -963,7 +963,7 @@ async def api_delete_error(
     error_id: Annotated[str, Query(alias="id")],
     current_user: UserInfo = Depends(auth.scheme),
 ):
-    if config.is_admin(current_user):
+    if current_user.is_admin():
         with engine.connect() as conn:
             conn.execute(sql.text("DELETE FROM errors WHERE id=:id"), {"id": error_id})
             conn.commit()
@@ -996,7 +996,7 @@ async def api_get_review_list(
 async def api_get_all_reviews(
     current_user: UserInfo = Depends(auth.scheme),
 ):
-    if config.is_admin(current_user):
+    if current_user.is_admin():
         with engine.connect() as conn:
             reviews: list[dict[str, Any]] = []
             result = conn.execute(
@@ -1028,7 +1028,7 @@ async def api_get_all_reviews(
 async def api_get_all_activity(
     current_user: UserInfo = Depends(auth.scheme),
 ):
-    if config.is_admin(current_user):
+    if current_user.is_admin():
         with engine.connect() as conn:
             activity: list[dict[str, Any]] = []
             result = conn.execute(
@@ -1266,7 +1266,7 @@ async def admin(request: Request):
         return user_response
     current_user = user_response
 
-    if config.is_admin(current_user):
+    if current_user.is_admin():
         return templates.TemplateResponse(
             request=request,
             name="admin.html.j2",
@@ -1339,7 +1339,7 @@ async def index(request: Request):
     current_user = user_response
 
     count = 0
-    if config.is_admin(current_user):
+    if current_user.is_admin():
         with engine.connect() as conn:
             result = conn.execute(sql.text("SELECT id FROM errors")).fetchall()
             count = len(result)
@@ -1351,7 +1351,7 @@ async def index(request: Request):
             "BRANDING": config.config["branding"],
             "SCRIPT_URL": config.config["url"],
             "NO_REVIEW_MSG": config.config["no_review_msg"],
-            "ADMIN_CSS": "inline-block" if config.is_admin(current_user) else "none",
+            "ADMIN_CSS": "inline-block" if current_user.is_admin() else "none",
             "ADMIN_ERRORS": ("(" + str(count) + ")") if count > 0 else "",
         },
     )
