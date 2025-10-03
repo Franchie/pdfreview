@@ -15,6 +15,8 @@ from msal import ConfidentialClientApplication  # type:ignore
 from msal import SerializableTokenCache  # type:ignore
 from pydantic import BaseModel, ConfigDict, Field
 
+import config
+
 
 class UserInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -29,6 +31,9 @@ class UserInfo(BaseModel):
     roles: list[str] | None = None
     hasgroups: bool | None = None
     groups: list[str] | str | None = None
+
+    def is_admin(self):
+        return self.roles and config.config["msal_admin_role"] in list(self.roles)
 
 
 class SessionTokenCache:

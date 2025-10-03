@@ -20,8 +20,5 @@ config: dict[str, Any] = {
     "msal_client_credential": "<msal client credential>",
     "msal_tenant": "<msal client tenant>",
     "msal_secret": "<msal client secret>",
+    "msal_admin_role": "<admin role>",
 }
-
-
-def is_admin(current_user: UserInfo):
-    return True
