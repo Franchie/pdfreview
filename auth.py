@@ -1,4 +1,6 @@
 import json
+import time
+from datetime import timedelta
 from typing import Any
 
 import jwt
@@ -21,16 +23,11 @@ import config
 class UserInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    preferred_username: str | None = None
     email: str | None = None
     display_name: str | None = Field(None, alias="name")
-    first_name: str | None = Field(None, alias="given_name")
-    last_name: str | None = Field(None, alias="family_name")
     user_id: str | None = Field(None, alias="oid")
-    unique_name: str | None = None
     roles: list[str] | None = None
-    hasgroups: bool | None = None
-    groups: list[str] | str | None = None
+    groups: list[str] = []
 
     def is_admin(self):
         return self.roles and config.config["msal_admin_role"] in list(self.roles)
@@ -40,12 +37,29 @@ class SessionTokenCache:
     cache: dict[str, str] = {}
 
     @classmethod
-    def write(cls, key: str, value: str):
-        cls.cache.update({key: value})
+    def write(cls, session_id: str, value: str):
+        cls.cache.update({session_id: value})
 
     @classmethod
-    def read(cls, key: str) -> str | None:
-        return cls.cache.get(key, None)
+    def read(cls, session_id: str) -> str | None:
+        return cls.cache.get(session_id, None)
+
+
+class GroupsCache:
+    cache: dict[str, tuple[int, list[str]]] = {}
+
+    @classmethod
+    def write(cls, uid: str, value: list[str]):
+        cls.cache.update({uid: (int(time.time()), value)})
+
+    @classmethod
+    def read(cls, uid: str) -> list[str] | None:
+        result = cls.cache.get(uid, None)
+
+        if result and time.time() - result[0] < timedelta(minutes=10).seconds:
+            return result[1]
+
+        return None
 
 
 class MSALAuthHandler:
@@ -74,7 +88,7 @@ class MSALAuthHandler:
 
         return keys
 
-    def _load_cache(self, session: dict[str, Any]):
+    def _load_token_cache(self, session: dict[str, Any]):
         cache = SerializableTokenCache()
         session_id = session.get(self._session_id_key)
         if session_id:
@@ -83,9 +97,11 @@ class MSALAuthHandler:
                 cache.deserialize(token_cache)  # type:ignore
         return cache
 
-    def _save_cache(self, session: dict[str, Any], cache: SerializableTokenCache):
+    def _save_token_cache(self, session: dict[str, Any], cache: SerializableTokenCache):
         if cache.has_state_changed:
-            SessionTokenCache.write(session[self._session_id_key], cache.serialize())
+            session_id = session.get(self._session_id_key)
+            if session_id:
+                SessionTokenCache.write(session_id, cache.serialize())
 
     def _build_msal(self, cache: SerializableTokenCache | None = None):
         return ConfidentialClientApplication(
@@ -96,6 +112,23 @@ class MSALAuthHandler:
             http_cache=self._http_cache,
             instance_discovery=False,
         )
+
+    def _validate_token(self, token: str):
+        keys = self._fetch_jwt_keys()
+
+        kid = jwt.get_unverified_header(token)["kid"]
+        payload = jwt.decode(
+            token,
+            key=keys[kid],
+            algorithms=["RS256"],
+            audience=[self._client_id],
+            options={"verify_signature": True},
+        )
+
+        if payload["tid"] != self._tenant:
+            raise jwt.InvalidTokenError("Invalid tenant")
+
+        return payload
 
     def sign_path(self, path: str):
         return self.serializer.dumps(path)
@@ -135,7 +168,7 @@ class MSALAuthHandler:
         if state and state != auth_code["state"]:
             raise http_exception
 
-        cache = self._load_cache(request.session)
+        cache = self._load_token_cache(request.session)
         auth_token: dict[str, str] = self._build_msal(cache).acquire_token_by_auth_code_flow(  # type:ignore
             auth_code, {"code": code, "state": state}, scopes=self._scopes
         )
@@ -143,7 +176,7 @@ class MSALAuthHandler:
             if auth_token.get("error_description"):
                 http_exception.detail = f"{auth_token["error"]}: {auth_token["error_description"]}"
             raise http_exception
-        self._save_cache(request.session, cache)
+        self._save_token_cache(request.session, cache)
 
         next_path = self.unsign_path(str(request.session.get(self._next_path_key)))
         if not next_path or not self.is_safe_path(next_path):
@@ -152,12 +185,12 @@ class MSALAuthHandler:
         return next_path
 
     def get_id_token_from_session(self, request: Request) -> str | None:
-        cache = self._load_cache(request.session)
+        cache = self._load_token_cache(request.session)
         cca = self._build_msal(cache)
         accounts = cca.get_accounts()  # type:ignore
         if accounts:
             cca.acquire_token_silent(self._scopes, account=accounts[0])  # type:ignore
-            self._save_cache(request.session, cache)
+            self._save_token_cache(request.session, cache)
             return cache.find(  # type:ignore
                 cache.CredentialType.ID_TOKEN,
                 query={
@@ -166,22 +199,41 @@ class MSALAuthHandler:
             )[0]["secret"]
         return None
 
-    def validate_token(self, token: str):
-        keys = self._fetch_jwt_keys()
+    def populate_user(self, token_claims: str):
+        user = UserInfo.model_validate(self._validate_token(token_claims))
+        if not user.user_id:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid user")
 
-        kid = jwt.get_unverified_header(token)["kid"]
-        payload = jwt.decode(
-            token,
-            key=keys[kid],
-            algorithms=["RS256"],
-            audience=[self._client_id],
-            options={"verify_signature": True},
-        )
+        groups = GroupsCache.read(user.user_id)
+        if not groups:
+            auth_result: dict[str, str] | None = self._build_msal().acquire_token_on_behalf_of(  # type:ignore
+                token_claims, ["https://graph.microsoft.com/.default"]
+            )
 
-        if payload["tid"] != self._tenant:
-            raise jwt.InvalidTokenError("Invalid tenant")
+            if "access_token" not in auth_result:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    f"OBO failed: {auth_result.get('error')}: {auth_result.get('error_description')}",
+                )
 
-        return payload
+            headers = {"Authorization": f"Bearer {auth_result["access_token"]}"}
+            response = requests.get(
+                "https://graph.microsoft.com/v1.0/me/transitiveMemberOf/microsoft.graph.group?$select=id&$top=999",
+                headers=headers,
+                timeout=10,
+            ).json()
+
+            if "error" in response:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    f"Graph API call failed: {response.get('error')}: {response.get('error_description')}",
+                )
+
+            groups = [x["id"] for x in response["value"]]
+            GroupsCache.write(user.user_id, groups)
+
+        user.groups = groups
+        return user
 
 
 class MSALScheme(SecurityBase):
@@ -209,7 +261,6 @@ class MSALScheme(SecurityBase):
 
         token_claims: str | None = None
 
-        # TODO: Note sure about this.. id token in auth headers?
         authorization = request.headers.get("Authorization")
         scheme, token = get_authorization_scheme_param(authorization)
         if authorization and scheme.lower() == "bearer":
@@ -222,7 +273,7 @@ class MSALScheme(SecurityBase):
             raise http_exception
 
         try:
-            return UserInfo.model_validate(self.handler.validate_token(token_claims))
+            return self.handler.populate_user(token_claims)
         except Exception as ex:
             raise http_exception from ex
 
@@ -252,7 +303,7 @@ class MSALAuth:
     def get_current_user(self, request: Request) -> UserInfo | None:
         token = self.handler.get_id_token_from_session(request)
         if token:
-            return UserInfo.model_validate(self.handler.validate_token(token))
+            return self.handler.populate_user(token)
         return None
 
     @property
