@@ -11,7 +11,10 @@ import os
 import random
 import re
 import string
+import tempfile
 import time
+from datetime import timedelta
+from enum import Enum
 from subprocess import PIPE, Popen
 from typing import Annotated, Any, cast
 from urllib.parse import quote_plus
@@ -44,7 +47,6 @@ app.mount("/css", StaticFiles(directory="css"), name="css")
 app.mount("/font", StaticFiles(directory="font"), name="font")
 app.mount("/img", StaticFiles(directory="img"), name="img")
 app.mount("/js", StaticFiles(directory="js"), name="js")
-app.mount("/pdfs", StaticFiles(directory="pdfs"), name="pdfs")
 templates = Jinja2Templates(directory="templates")
 
 
@@ -65,7 +67,7 @@ engine = create_engine(db_url, echo=False)
 check_encoding()
 
 with engine.connect() as _conn:
-    require_db_version(_conn, "3591e07be8d9")
+    require_db_version(_conn, "43e76f87bca2")
 
 #
 # Support functions ----------------------------------------------------------------------------------
@@ -734,23 +736,25 @@ async def api_delete_review(
             return response
 
         result = conn.execute(
-            sql.text("SELECT pdffile FROM reviews WHERE reviewid=:review_id AND owner=:owner"),
-            {"review_id": review, "owner": current_user.user_id},
+            sql.text("SELECT owner, pdffile FROM reviews WHERE reviewid=:review_id"),
+            {"review_id": review},
         ).fetchone()
         if result:
-            pdffile = result.pdffile
-            psfile = re.sub(r"\.pdf", r"-archive.ps", pdffile)
-            pngfile = re.sub(r"\.pdf", r"-archive.png", pdffile)
-            archivefile = re.sub(r"\.pdf", r"-archive.pdf", pdffile)
-            if os.path.lexists(pdffile):
-                os.remove(pdffile)
-            if os.path.lexists(psfile):
-                os.remove(psfile)
-            if os.path.lexists(pngfile):
-                os.remove(pngfile)
-            if os.path.lexists(archivefile):
-                os.remove(archivefile)
+            if result.owner != current_user.user_id:
+                raise HTTPException(status_code=403, detail="Cannot delete a review you do not own")
+            if os.path.lexists(result.pdffile):
+                os.remove(result.pdffile)
+
+        result = conn.execute(
+            sql.text("SELECT filename FROM archives WHERE reviewid=:review_id"),
+            {"review_id": review},
+        ).fetchone()
+        if result:
+            if os.path.lexists(result.filename):
+                os.remove(result.filename)
+
         conn.execute(sql.text("DELETE FROM reviews   WHERE reviewid=:review_id"), {"review_id": review})
+        conn.execute(sql.text("DELETE FROM archives  WHERE reviewid=:review_id"), {"review_id": review})
         conn.execute(sql.text("DELETE FROM comments  WHERE reviewid=:review_id"), {"review_id": review})
         conn.execute(sql.text("DELETE FROM myread    WHERE reviewid=:review_id"), {"review_id": review})
         conn.execute(sql.text("DELETE FROM myreviews WHERE reviewid=:review_id"), {"review_id": review})
@@ -785,6 +789,11 @@ async def api_export_comments(
     return JSONResponse(exported_comments)
 
 
+class OutputFormat(str, Enum):
+    PNG = "png"
+    PDF = "pdf"
+
+
 @app.get(
     "/api/pdf-archive",
     response_model=UserInfo,
@@ -794,7 +803,7 @@ async def api_export_comments(
 async def api_pdf_archive_get(
     review: str,
     commentid: str | None = None,
-    output_format: str | None = None,
+    output_format: OutputFormat | None = None,
     password: str | None = None,
     highlights: bool = False,
     current_user: UserInfo = Depends(auth.scheme),
@@ -811,7 +820,7 @@ async def api_pdf_archive_get(
 async def api_pdf_archive_post(
     review: Annotated[str, Form()],
     commentid: Annotated[str, Form()] | None = None,
-    output_format: Annotated[str, Form(alias="format")] | None = None,
+    output_format: Annotated[OutputFormat, Form(alias="format")] | None = None,
     password: Annotated[str, Form()] | None = None,
     highlights: Annotated[bool, Form()] = False,
     current_user: UserInfo = Depends(auth.scheme),
@@ -822,12 +831,12 @@ async def api_pdf_archive_post(
 def api_pdf_archive(
     review: str,
     commentid: str | None,
-    output_format: str | None,
+    output_format: OutputFormat | None,
     password: str | None,
     highlights: bool,
     current_user: UserInfo,
 ):
-    if output_format == "png":
+    if output_format == OutputFormat.PNG:
         highlights = True
 
     with engine.connect() as conn:
@@ -840,54 +849,91 @@ def api_pdf_archive(
         else:
             return JSONResponse({"errorCode": 2, "errorMsg": "The specified review could not be located."})
 
-    # Create postscript annotations
-    psfile = re.sub(r"\.pdf", r"-archive.ps", pdffile)
-    archivefile = (
-        re.sub(r"\.pdf", r"-archive.png", pdffile)
-        if output_format == "png"
-        else re.sub(r"\.pdf", r"-archive.pdf", pdffile)
-    )
-    cmd: list[str] = [
-        config.config["ghostscript_path"],
-        "-dSAFER",
-        "-dBATCH",
-        "-dNOPAUSE",
-        "-q",
-        "-sOutputFile=" + archivefile,
-        "-sDEVICE=png16m" if output_format == "png" else "-sDEVICE=pdfwrite",
-        "-dPDFSETTINGS=/prepress",
-    ]
-    if password:
-        cmd.append("-sPDFPassword=" + html.escape(password))
-        cmd.append("-sOwnerPassword=" + html.escape(password))
-        cmd.append("-sUserPassword=" + html.escape(password))
+    with tempfile.NamedTemporaryFile(delete_on_close=False) as f_psinput:
+        f_psinput.close()
 
-    # The whole thing, or just a specific comment?
-    page_num = 0
-    if commentid:
-        newcomments = [x for x in comments if x.get("id") == commentid or x.get("replyToId") == commentid]
-        comments = newcomments
-        if len(comments) == 0:
-            return JSONResponse({"errorCode": 4, "errorMsg": "No suitable comments could be found."})
-        for x in comments:
-            page_num = int(x.get("pageId", page_num))
-        cmd.append("-r250")
-        cmd.append("-dPrinted=false")
-        cmd.append("-dFirstPage=" + str(page_num + 1))
-        cmd.append("-dLastPage=" + str(page_num + 1))
+        while True:
+            filename = (
+                config.config["archive_path"]
+                + gen_random_string(64)
+                + (".png" if output_format == OutputFormat.PNG else ".pdf")
+            )
+            if not os.path.isfile(filename):
+                break
 
-    cmd.append(psfile)
-    cmd.append(pdffile)
+        # Create postscript annotations
+        cmd: list[str] = [
+            config.config["ghostscript_path"],
+            "-dSAFER",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-q",
+            "-sOutputFile=" + filename,
+            "-sDEVICE=png16m" if output_format == OutputFormat.PNG else "-sDEVICE=pdfwrite",
+            "-dPDFSETTINGS=/prepress",
+        ]
+        if password:
+            cmd.append("-sPDFPassword=" + html.escape(password))
+            cmd.append("-sOwnerPassword=" + html.escape(password))
+            cmd.append("-sUserPassword=" + html.escape(password))
 
-    ps = create_ps_from_comments(comments, page_num, highlights)
-    with open(psfile, "w", encoding="utf-8") as output_file:
-        output_file.write(ps)
-        output_file.write(f"%% {" ".join(cmd)}\n")
+        # The whole thing, or just a specific comment?
+        page_num = 0
+        if commentid:
+            newcomments = [x for x in comments if x.get("id") == commentid or x.get("replyToId") == commentid]
+            comments = newcomments
+            if len(comments) == 0:
+                return JSONResponse({"errorCode": 4, "errorMsg": "No suitable comments could be found."})
+            for x in comments:
+                page_num = int(x.get("pageId", page_num))
+            cmd.append("-r250")
+            cmd.append("-dPrinted=false")
+            cmd.append("-dFirstPage=" + str(page_num + 1))
+            cmd.append("-dLastPage=" + str(page_num + 1))
 
-    # Run ghostscript
-    (retcode, output) = execute_with_return(cmd)
+        cmd.append(f_psinput.name)
+        cmd.append(pdffile)
+
+        ps = create_ps_from_comments(comments, page_num, highlights)
+        with open(f_psinput.name, "w", encoding="utf-8") as output_file:
+            output_file.write(ps)
+            output_file.write(f"%% {" ".join(cmd)}\n")
+
+        # Run ghostscript
+        (retcode, output) = execute_with_return(cmd)
+
+    archive_id = gen_random_string(16)
+    with engine.connect() as conn:
+        result = conn.execute(
+            sql.text(
+                "INSERT INTO archives (archiveid, reviewid, type, filename, created) VALUES (:archive_id, :review, :type, :filename, :created)"
+            ),
+            {
+                "archive_id": archive_id,
+                "review": review,
+                "type": output_format or OutputFormat.PDF,
+                "filename": filename,
+                "created": time.time(),
+            },
+        )
+
+        # Remove archives >1h old
+        for result in conn.execute(
+            sql.text("SELECT id, filename FROM archives WHERE created<=:created"),
+            {"created": time.time() - timedelta(hours=1).seconds},
+        ).fetchall():
+            if os.path.lexists(result.filename):
+                os.remove(result.filename)
+            conn.execute(
+                sql.text("DELETE FROM archives WHERE id=:id"),
+                {"id": result.id},
+            )
+        conn.commit()
+
     if retcode == 0:
-        return JSONResponse({"errorCode": 0, "errorMsg": "Success", "url": archivefile})
+        return JSONResponse(
+            {"errorCode": 0, "errorMsg": "Success", "url": f"/api/review/{review}/archive/{archive_id}"}
+        )
 
     return JSONResponse({"errorCode": 3, "errorMsg": "Could not process archive file.", "debug": output})
 
@@ -1068,6 +1114,45 @@ async def api_add_review(
     return JSONResponse({"errorCode": 0, "errorMsg": "Success."})
 
 
+@app.get(
+    "/api/review/{review_id}/pdf",
+    response_model=UserInfo,
+    response_model_exclude_none=True,
+    response_model_by_alias=False,
+)
+async def get_pdf(review_id: str, _: UserInfo = Depends(auth.scheme)):
+    with engine.connect() as conn:
+        result = conn.execute(
+            sql.text("SELECT pdffile FROM reviews WHERE reviewid=:review_id"), {"review_id": review_id}
+        ).fetchone()
+        if not result:
+            raise HTTPException(status_code=404, detail="Review not found")
+
+    return FileResponse(result.pdffile, media_type="application/pdf")
+
+
+@app.get(
+    "/api/review/{review_id}/archive/{archive_id}",
+    response_model=UserInfo,
+    response_model_exclude_none=True,
+    response_model_by_alias=False,
+)
+async def get_archived_pdf(review_id: str, archive_id: str, _: UserInfo = Depends(auth.scheme)):
+    with engine.connect() as conn:
+        result = conn.execute(
+            sql.text("SELECT type, filename FROM archives WHERE reviewid=:review_id AND archiveid=:archive_id"),
+            {"review_id": review_id, "archive_id": archive_id},
+        ).fetchone()
+        if not result:
+            raise HTTPException(status_code=404, detail="Archive not found")
+
+    return FileResponse(
+        result.filename,
+        media_type="application/pdf" if result.type == "pdf" else "media/png",
+        headers={"Content-Disposition": f"attachment; filename={archive_id}.{result.type}"},
+    )
+
+
 @app.get("/rss/{review_id}", response_class=Response, include_in_schema=False)
 async def rss(request: Request, review_id: str):
     user_response = get_user_or_login(request)
@@ -1086,7 +1171,7 @@ async def rss(request: Request, review_id: str):
             response += f"<title>{result.title}: review updates</title>"
         else:
             response += "<title>Review updates</title>"
-        response += f"<link>{config.config["url"]}?rss={review_id}</link>"
+        response += f"<link>{config.config["url"]}/rss/{review_id}</link>"
         response += "<description>This feed lists the latest changes to the review. This does not include your own changes, it is assumed you know about these.</description>"
 
         result = conn.execute(
@@ -1147,9 +1232,7 @@ async def manifest_service_worker(
 
     output += f"{config.config["url"]}\n"
     for review in reviews:
-        output += f"{review["pdf"]}\n"
-        output += f"{config.config["url"]}/index.cgi?review={review["id"]}\n"
-        output += f"{config.config["url"]}/index.cgi?review={review["id"]}&closed=true\n"
+        output += f"{config.config["url"]}/api/review/{review["id"]}/pdf\n"
         output += f"{config.config["url"]}/review/{review["id"]}\n"
         output += f"{config.config["url"]}/review/{review["id"]}&closed=true\n"
 
@@ -1178,13 +1261,14 @@ async def upload(
 ):
     if not file.filename:
         return JSONResponse({"errorCode": 1, "errorMsg": "Missing parameters: filename key :("})
+    if not file.size or file.size >= 1024 * 1024 * 100:  # 100 MB
+        return JSONResponse({"errorCode": 1, "errorMsg": "File size unknown or too large"})
 
     # Create a unique filename for the uploaded PDF + save file
     while True:
         filename = config.config["pdf_path"] + gen_random_string(64) + ".pdf"
         if not os.path.isfile(filename):
             break
-    # Warning: this does not verify uploaded file size. But we trust users, right?
     with open(filename, "wb") as output_file:
         output_file.write(await file.read())
 
@@ -1288,7 +1372,7 @@ async def show_review(request: Request, review_id: str):
 
     with engine.connect() as conn:
         result = conn.execute(
-            sql.text("SELECT reviewid, owner, closed, pdffile, title FROM reviews WHERE reviewid=:review_id"),
+            sql.text("SELECT reviewid, owner, closed, title FROM reviews WHERE reviewid=:review_id"),
             {"review_id": review_id},
         ).fetchone()
         if result:
@@ -1298,7 +1382,6 @@ async def show_review(request: Request, review_id: str):
                 context={
                     "BRANDING": config.config["branding"],
                     "REVIEW_PDF_TITLE": result.title,
-                    "REVIEW_PDF_URL": "/" + result.pdffile,
                     "REVIEW_PDF_ID": review_id,
                     "SCRIPT_URL": config.config["url"],
                 },

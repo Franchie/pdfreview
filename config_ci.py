@@ -4,6 +4,7 @@ config: dict[str, Any] = {
     "branding": "PDFReview test instance",
     "url": "http://localhost/pdfreview",
     "pdf_path": "./pdfs/",
+    "archive_path": "./archives/",
     "db_host": "localhost",
     "db_user": "webuser",
     "db_passwd": "password",
