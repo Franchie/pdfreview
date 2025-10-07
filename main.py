@@ -67,7 +67,7 @@ engine = create_engine(db_url, echo=False)
 check_encoding()
 
 with engine.connect() as _conn:
-    require_db_version(_conn, "43e76f87bca2")
+    require_db_version(_conn, "019af732851b")
 
 #
 # Support functions ----------------------------------------------------------------------------------
@@ -377,6 +377,28 @@ def get_user_or_login(request: Request):
         conn.commit()
 
     return current_user
+
+
+# TODO: Not currently used or tested, but demonstrates how this should work
+def can_access_review(current_user: UserInfo, review_id: str):
+    with engine.connect() as conn:
+        result = conn.execute(
+            sql.text("SELECT owner FROM reviews WHERE reviewid=:review"),
+            {"review": review_id},
+        ).fetchone()
+        if result and result.owner == current_user.user_id:
+            return True
+
+        for result in conn.execute(
+            sql.text("SELECT uid, gid FROM acl WHERE reviewid=:review"),
+            {"review": review_id},
+        ).fetchall():
+            if result.uid and result.uid == current_user.user_id:
+                return True
+            if result.gid and result.gid in current_user.groups:
+                return True
+
+    return False
 
 
 #
