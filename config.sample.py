@@ -1,11 +1,10 @@
 from typing import Any
 
-from auth import UserInfo
-
 config: dict[str, Any] = {
     "branding": "<company name>",
     "url": "http://path.to",
     "pdf_path": "./pdfs/",
+    "archive_path": "./archives/",
     "db_host": "<sql database>",
     "db_user": "<sql user>",
     "db_passwd": "<sql pwd>",

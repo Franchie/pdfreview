@@ -1,3 +1,4 @@
+archives/*
 pdfs/*
 *.pyc
 config.py
