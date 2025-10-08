@@ -303,7 +303,10 @@ class MSALAuth:
     def get_current_user(self, request: Request) -> UserInfo | None:
         token = self.handler.get_id_token_from_session(request)
         if token:
-            return self.handler.populate_user(token)
+            try:
+                return self.handler.populate_user(token)
+            except Exception:  # pylint: disable=broad-exception-caught
+                return None
         return None
 
     @property
