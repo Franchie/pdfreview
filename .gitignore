@@ -3,6 +3,7 @@ pdfs/*
 *.pyc
 config.py
 docs/*
+/alembic/override.json
 /alembic/user_map.json
 
 # Python venv
