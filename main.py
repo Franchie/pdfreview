@@ -62,7 +62,7 @@ db_url = "mysql://{}:{}@{}/{}?charset=utf8mb4".format(
     ]
 )
 
-engine = create_engine(db_url, echo=False)
+engine = create_engine(db_url, echo=False, pool_pre_ping=True)
 
 check_encoding()
 
