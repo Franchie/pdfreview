@@ -1497,3 +1497,15 @@ async def index_legacy_post(request: Request):
         return RedirectResponse(f"/api/{api_val}")
 
     raise HTTPException(status_code=404)
+
+
+# Handle unclean migrations where the URLs in the cache end up pointing to the wrong place
+@app.post("/", include_in_schema=False)
+async def index_post(request: Request):
+    form = await request.form()
+
+    api_val = form.get("api") or request.query_params.get("api")
+    if api_val:
+        return RedirectResponse(f"/api/{api_val}")
+
+    raise HTTPException(status_code=404)
