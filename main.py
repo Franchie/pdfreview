@@ -1467,11 +1467,12 @@ async def index(request: Request):
 #
 @app.get("/index.cgi", include_in_schema=False)
 async def index_legacy(request: Request):
-    user_response = get_user_or_login(request)
-    if isinstance(user_response, Response):
-        return user_response
-
     form = await request.form()
+
+    manifest_val = form.get("manifest") or request.query_params.get("manifest")
+    if manifest_val == "serviceworker":
+        return Response(status_code=200, media_type="application/javascript")
+
     review_val = form.get("review") or request.query_params.get("review")
     if review_val:
         return templates.TemplateResponse(
@@ -1483,5 +1484,16 @@ async def index_legacy(request: Request):
                 "REVIEW_ID": review_val,
             },
         )
+
+    raise HTTPException(status_code=404)
+
+
+@app.post("/index.cgi", include_in_schema=False)
+async def index_legacy_post(request: Request):
+    form = await request.form()
+
+    api_val = form.get("api") or request.query_params.get("api")
+    if api_val:
+        return RedirectResponse(f"/api/{api_val}")
 
     raise HTTPException(status_code=404)
