@@ -55,7 +55,8 @@ offline_handler.addEventListener('fetch', function(event) {
     if(event.request.method == "GET") {
         // The following are network first requests, otherwise it is cache first
         if(url_path == "/" || url_path.match("^/review") || url_path.match("^/admin") ||
-           url_path.match("^/docs") || url_path.match("^/rss") || url_path.match("^/openapi.json"))
+           url_path.match("^/docs") || url_path.match("^/rss") || url_path.match("^/openapi.json") ||
+           url_path.match("^/index.cgi"))
             event.respondWith(fetchAndCache(event.request));
         else
             event.respondWith(caches.match(event.request).then((response) => response || fetchAndCache(event.request)));

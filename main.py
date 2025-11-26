@@ -1438,6 +1438,12 @@ async def swagger_ui_redirect():
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
+    # Temporary legacy url endpoint to aid in migration
+    form = await request.form()
+    manifest_val = form.get("manifest") or request.query_params.get("manifest")
+    if manifest_val == "serviceworker":
+        return Response(status_code=200, media_type="application/javascript")
+
     user_response = get_user_or_login(request)
     if isinstance(user_response, Response):
         return user_response
@@ -1485,7 +1491,7 @@ async def index_legacy(request: Request):
             },
         )
 
-    raise HTTPException(status_code=404)
+    return RedirectResponse("/")
 
 
 @app.post("/index.cgi", include_in_schema=False)
