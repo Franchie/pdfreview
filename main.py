@@ -16,7 +16,7 @@ import time
 from datetime import timedelta
 from enum import Enum
 from subprocess import PIPE, Popen
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Awaitable, Callable, cast
 from urllib.parse import quote_plus
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response, UploadFile
@@ -432,6 +432,21 @@ async def unsupported():
 @app.get("/manifest.json", include_in_schema=False)
 async def manifest_json():
     return FileResponse("manifest.json")
+
+
+#
+# Middleware -----------------------------------------------------------------------------------------
+#
+@app.middleware("http")
+async def noop_serviceworker(request: Request, call_next: Callable[[Request], Awaitable[Response]]):
+    service_worker = request.headers.get("Service-Worker")
+    if service_worker and request.url.path != "/serviceworker":
+        return FileResponse(
+            "noop-service-worker.js",
+            media_type="application/javascript",
+        )
+
+    return await call_next(request)
 
 
 #
@@ -1438,12 +1453,6 @@ async def swagger_ui_redirect():
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
-    # Temporary legacy url endpoint to aid in migration
-    form = await request.form()
-    manifest_val = form.get("manifest") or request.query_params.get("manifest")
-    if manifest_val == "serviceworker":
-        return Response(status_code=200, media_type="application/javascript")
-
     user_response = get_user_or_login(request)
     if isinstance(user_response, Response):
         return user_response
@@ -1474,10 +1483,6 @@ async def index(request: Request):
 @app.get("/index.cgi", include_in_schema=False)
 async def index_legacy(request: Request):
     form = await request.form()
-
-    manifest_val = form.get("manifest") or request.query_params.get("manifest")
-    if manifest_val == "serviceworker":
-        return Response(status_code=200, media_type="application/javascript")
 
     review_val = form.get("review") or request.query_params.get("review")
     if review_val:

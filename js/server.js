@@ -232,8 +232,7 @@ function Server() {
     $('#offline-status-text').hide();
 
     // If this browser/server supports a ServiceWorker, use that instead.
-    // Service workers only work on HTTPS, so don't even try if that's not what we're using.
-    if('serviceWorker' in navigator && location.protocol.match("https") ) {
+    if('serviceWorker' in navigator) {
      try {
          offlineCacheStatus("downloading");
          navigator.serviceWorker.register(window.scriptURL + '/serviceworker', {scope: '/'}).then(function(registration) {
