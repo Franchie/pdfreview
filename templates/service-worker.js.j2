@@ -16,14 +16,40 @@ var root = (function() {
 // Version information (for updating this file):
 {{ VERSION_DIFF }}
 
+var version = 'v2';
+
 offline_handler.addEventListener('install', function(event) {
+    console.log('[ServiceWorker] Installed version', version);
+    console.log('[ServiceWorker] Caching started for', version);
     event.waitUntil(
-        caches.open('v1').then(function(cache) {
+        caches.open(version).then(cache => {
             return cache.addAll([
                 {{ OFFLINE_FILE_LIST | safe }}
             ]);
+        }).then(() => {
+            console.log('[ServiceWorker] Caching complete for', version);
+            console.log('[ServiceWorker] Skip waiting on install');
+            self.skipWaiting();
         })
     );
+});
+
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheName !== version) {
+            console.log('[ServiceWorker] Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      console.log('[ServiceWorker] Claiming clients for version', version);
+      return self.clients.claim();
+    })
+  );
 });
 
 const fetchAndCache = (request) => {
@@ -40,7 +66,7 @@ const fetchAndCache = (request) => {
         if(request.url.match("^/docs")) return response;
         if(!request.url.startsWith("http")) return response;
 
-        return caches.open('v1').then(function(cache) {
+        return caches.open(version).then(function(cache) {
             cache.put(request, response.clone());
             return response;
         });
